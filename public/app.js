@@ -56,9 +56,9 @@ function clampInt(n, min, max) {
   return Math.max(min, Math.min(max, v));
 }
 
-function buildDialString(number, digits, amount, delays) {
+function buildDialString(number, mobile_or_upi, amount, delays) {
   const num = String(number || "").trim();
-  const dg = String(digits || "").replace(/\D/g, "");
+  const target = String(mobile_or_upi || "").trim();
   const amt = String(amount || "").trim();
 
   const d1 = ",".repeat(clampInt(delays.step1, 0, 10));
@@ -66,8 +66,8 @@ function buildDialString(number, digits, amount, delays) {
   const d3 = ",".repeat(clampInt(delays.step3, 0, 10));
   const d4 = ",".repeat(clampInt(delays.step4, 0, 10));
 
-  // Format target: tel:<number>,,2,,1,,<digits>,,<amount>
-  return `tel:${num}${d1}2${d2}1${d3}${dg}${d4}${amt}`;
+  // Format: tel:<number>,,2,,1,,<mobile_or_upi>,,<amount>
+  return `tel:${num}${d1}2${d2}1${d3}${target}${d4}${amt}`;
 }
 
 function useStoredState(key, initialValue) {
@@ -75,7 +75,15 @@ function useStoredState(key, initialValue) {
     try {
       const raw = localStorage.getItem(key);
       if (!raw) return initialValue;
-      return JSON.parse(raw);
+      const parsed = JSON.parse(raw);
+      // Migration: rename digits -> mobileNumber in presets
+      if (key === "upi.presets" && Array.isArray(parsed)) {
+        return parsed.map(p => ({
+          ...p,
+          mobileNumber: p.mobileNumber || p.digits || ""
+        }));
+      }
+      return parsed;
     } catch (_e) {
       return initialValue;
     }
@@ -91,6 +99,7 @@ function useStoredState(key, initialValue) {
 
   return [value, setValue];
 }
+
 
 function Button(props) {
   const className =
@@ -210,8 +219,8 @@ function App() {
   });
 
   const [presets, setPresets] = useStoredState("upi.presets", [
-    { name: "Milk", digits: "101", amount: 30 },
-    { name: "Tea", digits: "102", amount: 20 }
+    { name: "Milk", mobileNumber: "101", amount: 30 },
+    { name: "Tea", mobileNumber: "102", amount: 20 }
   ]);
 
   const [scanText, setScanText] = React.useState("");
@@ -220,7 +229,7 @@ function App() {
   const [pay, setPay] = React.useState({
     name: "",
     upiId: "",
-    digits: "",
+    mobileNumber: "",
     amount: "",
     ref: ""
   });
@@ -266,7 +275,7 @@ function App() {
     setPay({
       name: tx?.name || "",
       upiId: tx?.upiId || "",
-      digits: "",
+      mobileNumber: "",
       amount: String(tx?.amount || ""),
       ref: ""
     });
@@ -328,9 +337,15 @@ function App() {
   }
 
   function makeDial() {
+    const mobile_or_upi = pay.mobileNumber || pay.upiId;
+    if (!mobile_or_upi) {
+      showToast("Mobile Number or UPI ID required");
+      return null;
+    }
+
     const tel = buildDialString(
       settings.phoneNumber,
-      pay.digits,
+      mobile_or_upi,
       pay.amount,
       settings
     );
@@ -339,6 +354,7 @@ function App() {
 
   function openDialModal() {
     const tel = makeDial();
+    if (!tel) return;
     setModal({
       open: true,
       title: "Dial String",
@@ -347,7 +363,6 @@ function App() {
   }
 
   async function doPay() {
-    // This is a personal assistant tool; "Pay" = build tel: string and save record.
     if (!settings.phoneNumber) {
       showToast("Set phone number in Settings");
       setTab("settings");
@@ -359,6 +374,8 @@ function App() {
     }
 
     const tel = makeDial();
+    if (!tel) return;
+
     saveTransactionFireAndForget();
     window.location.href = tel;
   }
@@ -375,7 +392,7 @@ function App() {
         h(
           "div",
           { className: "btnRowSingle" },
-          h(Button, { variant: "cta", onClick: () => setTab("scan") }, "Scan QR (Camera)"),
+          h(Button, { variant: "cta", onClick: () => setTab("scan") }, "📸 Scan QR Code"),
           h(
             "div",
             { className: "btnRow" },
@@ -403,7 +420,7 @@ function App() {
       h(
         Card,
         null,
-        h("div", { className: "h" }, "Pay"),
+        h("div", { className: "h" }, "Payment Details"),
         h(
           "div",
           { className: "row" },
@@ -411,12 +428,12 @@ function App() {
             className: "input",
             value: pay.name,
             onChange: (e) => setPay((p) => ({ ...p, name: e.target.value })),
-            placeholder: "Merchant / person"
+            placeholder: "Merchant or Person"
           })),
           h(
             "div",
             null,
-            h("div", { className: "label" }, "UPI ID (optional)"),
+            h("div", { className: "label" }, "UPI ID (Fallback)"),
             h("input", {
               className: "input",
               value: pay.upiId,
@@ -430,14 +447,14 @@ function App() {
             h(
               "div",
               null,
-              h("div", { className: "label" }, "Digits"),
+              h("div", { className: "label" }, "Mobile Number"),
               h("input", {
                 className: "input",
-                inputMode: "numeric",
-                value: pay.digits,
+                inputMode: "tel",
+                value: pay.mobileNumber,
                 onChange: (e) =>
-                  setPay((p) => ({ ...p, digits: e.target.value })),
-                placeholder: "e.g. 1234"
+                  setPay((p) => ({ ...p, mobileNumber: e.target.value })),
+                placeholder: "9876543210"
               })
             ),
             h(
@@ -450,19 +467,19 @@ function App() {
                 value: pay.amount,
                 onChange: (e) =>
                   setPay((p) => ({ ...p, amount: e.target.value })),
-                placeholder: "e.g. 150"
+                placeholder: "0.00"
               })
             )
           ),
           h(
             "div",
             null,
-            h("div", { className: "label" }, "Reference (optional)"),
+            h("div", { className: "label" }, "Reference (Optional)"),
             h("input", {
               className: "input",
               value: pay.ref,
               onChange: (e) => setPay((p) => ({ ...p, ref: e.target.value })),
-              placeholder: "Any note / ref"
+              placeholder: "Any note"
             })
           )
         )
@@ -486,12 +503,12 @@ function App() {
                     h(
                       "div",
                       { className: "txMeta" },
-                      `digits ${pr.digits} • ${formatINR(pr.amount)}`
+                      `${pr.mobileNumber || pr.upiId} • ${formatINR(pr.amount)}`
                     )
                   ),
                   h(
                     "div",
-                    { style: { display: "grid", gap: 6 } },
+                    { style: { display: "flex", gap: 8 } },
                     h(
                       "button",
                       {
@@ -500,7 +517,8 @@ function App() {
                           setPay((p) => ({
                             ...p,
                             name: pr.name,
-                            digits: String(pr.digits || ""),
+                            mobileNumber: String(pr.mobileNumber || ""),
+                            upiId: String(pr.upiId || ""),
                             amount: String(pr.amount || "")
                           }))
                       },
@@ -515,41 +533,44 @@ function App() {
                           showToast("Removed preset");
                         }
                       },
-                      "Remove"
+                      "Delete"
                     )
                   )
                 )
               )
             )
           : h("div", { className: "hint" }, "No presets yet."),
-        h("div", { style: { height: 10 } }),
+        h("div", { style: { height: 12 } }),
         h(
           Button,
           {
             onClick: () => {
               const name = pay.name.trim();
-              const digits = String(pay.digits || "").replace(/\D/g, "");
+              const mobileNumber = pay.mobileNumber.trim();
+              const upiId = pay.upiId.trim();
               const amount = Number(pay.amount);
-              if (!name || !digits || !Number.isFinite(amount) || amount <= 0) {
-                showToast("Fill Name, Digits, Amount to add preset");
+              if (!name || (!mobileNumber && !upiId) || !Number.isFinite(amount) || amount <= 0) {
+                showToast("Fill Name, Target, and Amount");
                 return;
               }
-              setPresets((arr) => [{ name, digits, amount }, ...arr].slice(0, 12));
+              setPresets((arr) => [{ name, mobileNumber, upiId, amount }, ...arr].slice(0, 12));
               showToast("Preset added");
             }
           },
-          "Add Current As Preset"
+          "+ Save as Preset"
         )
       ),
       h(
         Card,
         null,
-        h("div", { className: "h" }, "Recent (last 7 days)"),
+        h("div", { className: "h" }, "Recent Payments"),
         history.slice(0, 3).map((tx, i) => h(TransactionItem, { key: i, tx, onUse: useTxForPay })),
         !history.length ? h("div", { className: "hint" }, "No transactions yet.") : null
       )
     );
   }
+
+
 
   function ScanScreen() {
     const videoRef = React.useRef(null);
