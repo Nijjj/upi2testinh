@@ -31,6 +31,23 @@
     <script src="js/utils.js"></script>
     <script src="js/logic.js"></script>
     <script src="js/components.js"></script>
+    <script>
+      // Verification script
+      window.addEventListener('load', function() {
+        var missing = [];
+        if (!window.React) missing.push('React');
+        if (!window.ReactDOM) missing.push('ReactDOM');
+        if (!window.Utils) missing.push('Utils (js/utils.js)');
+        if (!window.Logic) missing.push('Logic (js/logic.js)');
+        if (!window.UI) missing.push('UI (js/components.js)');
+        
+        if (missing.length > 0) {
+          var el = document.getElementById('debug-error');
+          el.style.display = 'block';
+          el.innerHTML += 'Missing Dependencies: ' + missing.join(', ') + '\n\n';
+        }
+      });
+    </script>
     <script src="app.js"></script>
   </body>
 </html>
