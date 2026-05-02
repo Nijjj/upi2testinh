@@ -2,17 +2,21 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
     <title>UPI Assistant</title>
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
     <div id="root"></div>
 
-    <!-- Lightweight React UMD (no build step). -->
+    <!-- Lightweight React UMD -->
     <script src="/vendor/react.production.min.js"></script>
     <script src="/vendor/react-dom.production.min.js"></script>
 
+    <!-- Modules -->
+    <script src="/js/utils.js"></script>
+    <script src="/js/logic.js"></script>
+    <script src="/js/components.js"></script>
     <script src="/app.js"></script>
   </body>
 </html>
