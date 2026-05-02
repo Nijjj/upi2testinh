@@ -164,4 +164,8 @@ function Scanner({ onScan, onError, onCancel }) {
   );
 }
 
+function Toast({ show, message }) {
+  return h("div", { className: `toast ${show ? 'toast-show' : ''}` }, message);
+}
+
 window.UI = { Button, Input, Card, Header, BottomNav, TransactionItem, Toast, Scanner };

@@ -2,7 +2,7 @@
 
 const { useState, useEffect, Fragment } = React;
 const { parseUpiUri, buildDialString, resolvePaymentInput, useStoredState } = Logic;
-const { Button, Input, Card, Header, BottomNav, TransactionItem, Toast } = UI;
+const { Button, Input, Card, Header, BottomNav, TransactionItem, Toast, Scanner } = UI;
 const h = React.createElement;
 
 function App() {
