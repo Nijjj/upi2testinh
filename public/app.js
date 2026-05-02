@@ -23,7 +23,7 @@ function App() {
     ref: ""
   });
 
-  const [history, setHistory] = useState([]);
+  const [history, setHistory] = useStoredState("upi.history", []);
   const [toast, setToast] = useState({ show: false, message: "" });
   const [loading, setLoading] = useState(false);
 
@@ -32,18 +32,12 @@ function App() {
     setTimeout(() => setToast({ show: false, message: "" }), 2000);
   }
 
-  async function loadHistory() {
-    try {
-      const res = await fetch(`/history?days=7`);
-      const json = await res.json();
-      setHistory(Array.isArray(json) ? json : []);
-    } catch (_e) {
-      setHistory([]);
-    }
+  function loadHistory() {
+    // History is now managed by useStoredState
   }
 
   useEffect(() => {
-    loadHistory();
+    // No need to fetch, state is handled by useStoredState
   }, [tab]);
 
   function handleScan(text) {
@@ -96,16 +90,9 @@ function App() {
 
     const tel = buildDialString(settings.phoneNumber, target, pay.amount, settings);
     
-    // Save transaction
-    const payload = { ...pay, date: new Date().toISOString() };
-    try {
-      fetch("/save", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-        keepalive: true
-      });
-    } catch (e) {}
+    // Save transaction locally
+    const transaction = { ...pay, date: new Date().toISOString() };
+    setHistory(prev => [transaction, ...prev].slice(0, 50));
 
     setLoading(true);
     setTimeout(() => {
