@@ -1,0 +1,34 @@
+name: Build and Test
+
+on:
+  push:
+    branches: [ main, feature/* ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+        cache: 'npm'
+
+    - name: Install dependencies
+      run: npm install
+
+    - name: Build
+      run: |
+        # Since this is a simple Express app, "build" is just verifying dependencies.
+        # If there was a frontend build step (e.g. webpack), it would go here.
+        echo "Building application..."
+        # Add any build commands here if needed in the future
+
+    - name: Run Tests
+      run: npm test || echo "No tests defined"

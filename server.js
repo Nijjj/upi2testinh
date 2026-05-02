@@ -52,6 +52,7 @@ app.post("/save", (req, res) => {
   const body = req.body || {};
   const name = typeof body.name === "string" ? body.name.trim() : "";
   const upiId = typeof body.upiId === "string" ? body.upiId.trim() : "";
+  const mobileNumber = typeof body.mobileNumber === "string" ? body.mobileNumber.trim() : "";
   const ref = typeof body.ref === "string" ? body.ref.trim() : "";
 
   const amountNum = Number(body.amount);
@@ -65,6 +66,7 @@ app.post("/save", (req, res) => {
   const transaction = {
     name,
     upiId,
+    mobileNumber,
     amount,
     date: new Date().toISOString(),
     ref: ref || `upi-${Date.now()}`
