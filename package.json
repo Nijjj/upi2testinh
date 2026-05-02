@@ -2,14 +2,13 @@
   "name": "upi-assistant-local",
   "version": "0.1.0",
   "private": true,
-  "main": "server.js",
+  "description": "Static UPI Assistant App",
   "scripts": {
-    "start": "node server.js",
+    "start": "npx serve public",
     "test": "echo \"Error: no test specified\" && exit 0"
   },
-  "dependencies": {
-    "express": "^4.19.2",
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1"
+  "dependencies": {},
+  "devDependencies": {
+    "serve": "^14.2.3"
   }
 }

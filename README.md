@@ -11,17 +11,14 @@ A lightweight, mobile-ready UPI assistant with QR scanning and automatic call tr
 
 ## 🚀 Getting Started
 
-### Prerequisites
-- Node.js installed (Termux or PC)
-
-### Installation
+### Installation & Run
 ```sh
 npm install
-node server.js
+npm start
 ```
 
 ### Usage
-1. Open `http://localhost:3000` in your browser.
+1. Open the app in your browser (default `http://localhost:3000`).
 2. Go to **Settings** and set your IVR phone number.
 3. Use **Scan QR** or manually enter details.
 4. Tap **Pay Now** to trigger the automated call.
@@ -57,9 +54,9 @@ This converts the web app into a native Android container.
 3. Tap **Menu (⋮) → Add to Home screen**.
 
 ## 🛠 Tech Stack
-- **Frontend**: Vanilla JS + React (UMD), CSS Transitions.
-- **Backend**: Node.js + Express.
-- **Storage**: JSON-based local storage.
+- **Frontend**: Vanilla JS + React (CDN), CSS Transitions.
+- **Backend**: None (Serverless/Static).
+- **Storage**: Browser `localStorage`.
 
 ## 📄 License
 MIT
