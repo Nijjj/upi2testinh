@@ -2,6 +2,9 @@
 
 const h = React.createElement;
 
+// Ensure UI object exists immediately
+window.UI = window.UI || {};
+
 function Button({ children, onClick, variant, className = "", type = "button", disabled = false }) {
   const baseClass = variant === "cta" ? "btn-cta" : variant === "primary" ? "btn btn-primary" : "btn";
   return h("button", { 
@@ -11,6 +14,7 @@ function Button({ children, onClick, variant, className = "", type = "button", d
     disabled
   }, children);
 }
+window.UI.Button = Button;
 
 function Input({ label, value, onChange, placeholder, type = "text", inputMode, error, className = "" }) {
   return h("div", { className: `input-group ${className}` },
@@ -26,10 +30,12 @@ function Input({ label, value, onChange, placeholder, type = "text", inputMode, 
     error && h("div", { className: "error-text" }, error)
   );
 }
+window.UI.Input = Input;
 
 function Card({ children, className = "", onClick }) {
   return h("div", { className: `card ${className}`, onClick }, children);
 }
+window.UI.Card = Card;
 
 function Header({ title, subtitle }) {
   return h("header", { className: "mt-2 mb-2" },
@@ -37,6 +43,7 @@ function Header({ title, subtitle }) {
     subtitle && h("p", { className: "text-secondary" }, subtitle)
   );
 }
+window.UI.Header = Header;
 
 function BottomNav({ activeTab, onTabChange }) {
   const tabs = [
@@ -57,6 +64,7 @@ function BottomNav({ activeTab, onTabChange }) {
     ))
   );
 }
+window.UI.BottomNav = BottomNav;
 
 function TransactionItem({ tx, onUse }) {
   const date = tx?.date ? new Date(tx.date) : null;
@@ -70,6 +78,7 @@ function TransactionItem({ tx, onUse }) {
     h("div", { className: "tx-amount" }, Utils.formatINR(tx?.amount))
   );
 }
+window.UI.TransactionItem = TransactionItem;
 
 function Scanner({ onScan, onError, onCancel }) {
   const videoRef = React.useRef(null);
@@ -163,9 +172,11 @@ function Scanner({ onScan, onError, onCancel }) {
     h(Button, { onClick: onCancel, className: "mt-1" }, "Cancel")
   );
 }
+window.UI.Scanner = Scanner;
 
 function Toast({ show, message }) {
   return h("div", { className: `toast ${show ? 'toast-show' : ''}` }, message);
 }
+window.UI.Toast = Toast;
 
-window.UI = { Button, Input, Card, Header, BottomNav, TransactionItem, Toast, Scanner };
+// window.UI is now populated incrementally

@@ -8,6 +8,20 @@
   </head>
   <body>
     <div id="root"></div>
+    <div id="debug-error" style="color: red; padding: 20px; font-family: monospace; white-space: pre-wrap; display: none; background: #fff;"></div>
+    <script>
+      window.onerror = function(msg, url, line, col, error) {
+        var el = document.getElementById('debug-error');
+        el.style.display = 'block';
+        el.innerHTML += 'Error: ' + msg + '\nAt: ' + url + ':' + line + ':' + col + '\n\n';
+        return false;
+      };
+      window.onunhandledrejection = function(event) {
+        var el = document.getElementById('debug-error');
+        el.style.display = 'block';
+        el.innerHTML += 'Promise Rejection: ' + event.reason + '\n\n';
+      };
+    </script>
 
     <!-- Lightweight React CDN -->
     <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
