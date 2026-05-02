@@ -1,223 +1,12 @@
-/* global React, ReactDOM */
+/* global React, ReactDOM, Utils, Logic, UI */
 
+const { useState, useEffect, Fragment } = React;
+const { parseUpiUri, buildDialString, resolvePaymentInput, useStoredState } = Logic;
+const { Button, Input, Card, Header, BottomNav, TransactionItem, Toast } = UI;
 const h = React.createElement;
-
-function formatINR(amount) {
-  const num = Number(amount);
-  if (!Number.isFinite(num)) return "INR 0.00";
-  return `INR ${num.toFixed(2)}`;
-}
-
-function nowIso() {
-  return new Date().toISOString();
-}
-
-function safeDecode(value) {
-  try {
-    return decodeURIComponent(value || "");
-  } catch (_e) {
-    return value || "";
-  }
-}
-
-function parseUpiUri(text) {
-  const raw = String(text || "").trim();
-  if (!raw) return { ok: false, error: "Empty input" };
-  if (!raw.toLowerCase().startsWith("upi://pay?")) {
-    return { ok: false, error: "Not a upi://pay URI" };
-  }
-
-  const q = raw.split("?", 2)[1] || "";
-  const pairs = q.split("&").filter(Boolean);
-  const map = {};
-  for (const part of pairs) {
-    const [k, v = ""] = part.split("=", 2);
-    if (!k) continue;
-    map[k] = safeDecode(v.replace(/\+/g, "%20"));
-  }
-
-  const upiId = String(map.pa || "").trim();
-  const name = String(map.pn || "").trim();
-  const amount = map.am ? Number(map.am) : NaN;
-
-  return {
-    ok: true,
-    raw,
-    upiId,
-    name,
-    amount: Number.isFinite(amount) ? amount : "",
-    note: String(map.tn || "").trim()
-  };
-}
-
-function clampInt(n, min, max) {
-  const v = Math.floor(Number(n));
-  if (!Number.isFinite(v)) return min;
-  return Math.max(min, Math.min(max, v));
-}
-
-function buildDialString(number, mobile_or_upi, amount, delays) {
-  const num = String(number || "").trim();
-  const target = String(mobile_or_upi || "").trim();
-  const amt = String(amount || "").trim();
-
-  const d1 = ",".repeat(clampInt(delays.step1, 0, 10));
-  const d2 = ",".repeat(clampInt(delays.step2, 0, 10));
-  const d3 = ",".repeat(clampInt(delays.step3, 0, 10));
-  const d4 = ",".repeat(clampInt(delays.step4, 0, 10));
-
-  // Format: tel:<number>,,2,,1,,<mobile_or_upi>,,<amount>
-  return `tel:${num}${d1}2${d2}1${d3}${target}${d4}${amt}`;
-}
-
-function resolvePaymentInput(mobileNumber, upiId) {
-  const m = String(mobileNumber || "").trim();
-  const u = String(upiId || "").trim();
-  if (m) return m;
-  if (u) return u;
-  throw new Error("Mobile Number or UPI ID required");
-}
-
-function useStoredState(key, initialValue) {
-  const [value, setValue] = React.useState(() => {
-    try {
-      const raw = localStorage.getItem(key);
-      if (!raw) return initialValue;
-      const parsed = JSON.parse(raw);
-      // Migration: rename digits -> mobileNumber in presets
-      if (key === "upi.presets" && Array.isArray(parsed)) {
-        return parsed.map(p => ({
-          ...p,
-          mobileNumber: p.mobileNumber || p.digits || ""
-        }));
-      }
-      return parsed;
-    } catch (_e) {
-      return initialValue;
-    }
-  });
-
-  React.useEffect(() => {
-    try {
-      localStorage.setItem(key, JSON.stringify(value));
-    } catch (_e) {
-      // ignore
-    }
-  }, [key, value]);
-
-  return [value, setValue];
-}
-
-
-function Button(props) {
-  const className =
-    "btn " +
-    (props.variant === "cta"
-      ? "btnCta"
-      : props.variant === "primary"
-      ? "btnPrimary"
-      : props.variant === "danger"
-        ? "btnDanger"
-        : "");
-  return h(
-    "button",
-    { className, onClick: props.onClick, type: props.type || "button" },
-    props.children
-  );
-}
-
-function Card(props) {
-  return h(
-    "section",
-    { className: "card " + (props.soft ? "cardSoft" : "") },
-    props.children
-  );
-}
-
-function TransactionItem({ tx, onUse }) {
-  const date = tx?.date ? new Date(tx.date) : null;
-  const dateLabel = date && !Number.isNaN(date.valueOf()) ? date.toLocaleString() : "";
-  return h(
-    "div",
-    { className: "txItem" },
-    h(
-      "div",
-      null,
-      h("div", { className: "txName" }, tx?.name || "Unknown"),
-      h(
-        "div",
-        { className: "txMeta" },
-        (tx?.upiId || tx?.mobileNumber || "") + (dateLabel ? ` • ${dateLabel}` : "")
-      )
-    ),
-    h(
-      "div",
-      { style: { display: "grid", justifyItems: "end", gap: 6 } },
-      h("div", { className: "txAmt" }, formatINR(tx?.amount)),
-      onUse
-        ? h(
-            "button",
-            { className: "tab tabActive", onClick: () => onUse(tx) },
-            "Use"
-          )
-        : null
-    )
-  );
-}
-
-function Toast({ text, show }) {
-  return h("div", { className: "toast " + (show ? "toastShow" : "") }, text);
-}
-
-function Modal({ open, title, children, onClose }) {
-  return h(
-    React.Fragment,
-    null,
-    h("div", {
-      className: "modalOverlay " + (open ? "modalOverlayShow" : ""),
-      onClick: onClose
-    }),
-    h(
-      "div",
-      { className: "modal " + (open ? "modalShow" : "") },
-      h("div", { className: "modalTitle" }, title),
-      children,
-      h("div", { style: { marginTop: 10 } }, h(Button, { onClick: onClose }, "Close"))
-    )
-  );
-}
-
-function Nav({ tab, setTab }) {
-  const items = [
-    { id: "home", label: "Home" },
-    { id: "scan", label: "Scan" },
-    { id: "history", label: "History" },
-    { id: "settings", label: "Settings" }
-  ];
-  return h(
-    "nav",
-    { className: "nav" },
-    h(
-      "div",
-      { className: "navInner" },
-      items.map((it) =>
-        h(
-          "button",
-          {
-            key: it.id,
-            className: "tab " + (tab === it.id ? "tabActive" : ""),
-            onClick: () => setTab(it.id)
-          },
-          it.label
-        )
-      )
-    )
-  );
-}
 
 function App() {
   const [tab, setTab] = useStoredState("upi.tab", "home");
-
   const [settings, setSettings] = useStoredState("upi.settings", {
     phoneNumber: "",
     step1: 2,
@@ -226,15 +15,7 @@ function App() {
     step4: 2
   });
 
-  const [presets, setPresets] = useStoredState("upi.presets", [
-    { name: "Milk", mobileNumber: "101", amount: 30 },
-    { name: "Tea", mobileNumber: "102", amount: 20 }
-  ]);
-
-  const [scanText, setScanText] = React.useState("");
-  const [scanParsed, setScanParsed] = React.useState(null);
-
-  const [pay, setPay] = React.useState({
+  const [pay, setPay] = useState({
     name: "",
     upiId: "",
     mobileNumber: "",
@@ -242,847 +23,239 @@ function App() {
     ref: ""
   });
 
-  const [history, setHistory] = React.useState([]);
-  const [historyDays, setHistoryDays] = React.useState(7);
+  const [history, setHistory] = useState([]);
+  const [toast, setToast] = useState({ show: false, message: "" });
+  const [loading, setLoading] = useState(false);
 
-  const [toast, setToast] = React.useState({ show: false, text: "" });
-  const [modal, setModal] = React.useState({ open: false, title: "", text: "" });
-
-  function showToast(text) {
-    setToast({ show: true, text });
-    window.setTimeout(() => setToast({ show: false, text: "" }), 1600);
+  function showToast(message) {
+    setToast({ show: true, message });
+    setTimeout(() => setToast({ show: false, message: "" }), 2000);
   }
 
-  async function loadHistory(days) {
+  async function loadHistory() {
     try {
-      const res = await fetch(`/history?days=${encodeURIComponent(days)}`);
+      const res = await fetch(`/history?days=7`);
       const json = await res.json();
-      const list = Array.isArray(json) ? json : [];
-      setHistory(list.map(t => ({
-        ...t,
-        mobileNumber: t.mobileNumber || t.digits || ""
-      })));
+      setHistory(Array.isArray(json) ? json : []);
     } catch (_e) {
       setHistory([]);
     }
   }
 
-  React.useEffect(() => {
-    if (tab === "history" || tab === "home") loadHistory(historyDays);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tab, historyDays]);
+  useEffect(() => {
+    loadHistory();
+  }, [tab]);
 
-  function applyParsedToPay(parsed) {
-    setPay((p) => ({
-      ...p,
-      name: parsed.name || p.name,
-      upiId: parsed.upiId || p.upiId,
-      mobileNumber: "",
-      amount: parsed.amount !== "" ? String(parsed.amount) : p.amount
-    }));
-    setTab("home");
-    showToast("Loaded from QR");
-  }
-
-  function useTxForPay(tx) {
+  function handleScan(text) {
+    const parsed = parseUpiUri(text);
+    if (!parsed.ok) {
+      showToast(parsed.error);
+      return;
+    }
     setPay({
-      name: tx?.name || "",
-      upiId: tx?.upiId || "",
-      mobileNumber: tx?.mobileNumber || "",
-      amount: String(tx?.amount || ""),
-      ref: ""
+      name: parsed.name,
+      upiId: parsed.upiId,
+      mobileNumber: "", // QR behavior: leave mobile empty
+      amount: parsed.amount ? String(parsed.amount) : "",
+      ref: parsed.note
     });
-    setTab("home");
-    showToast("Loaded from history");
+    setTab("scan-result");
+    showToast("QR Scanned Successfully");
   }
 
-  async function saveTransaction() {
-    const payload = {
-      name: pay.name,
-      upiId: pay.upiId,
-      mobileNumber: pay.mobileNumber,
-      amount: pay.amount,
-      ref: pay.ref || undefined
-    };
-
-    const res = await fetch("/save", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload)
+  function handleUseTx(tx) {
+    setPay({
+      name: tx.name || "",
+      upiId: tx.upiId || "",
+      mobileNumber: tx.mobileNumber || "",
+      amount: tx.amount ? String(tx.amount) : "",
+      ref: tx.ref || ""
     });
-    const json = await res.json().catch(() => ({}));
-    if (!res.ok) {
-      showToast(json?.error || "Save failed");
-      return null;
+    setTab("pay");
+  }
+
+  async function doPay() {
+    if (!settings.phoneNumber) {
+      showToast("Please set your phone number in Settings");
+      setTab("settings");
+      return;
     }
-    showToast("Saved");
-    await loadHistory(historyDays);
-    return json;
-  }
 
-  function saveTransactionFireAndForget() {
-    const payload = {
-      name: pay.name,
-      upiId: pay.upiId,
-      mobileNumber: pay.mobileNumber,
-      amount: pay.amount,
-      ref: pay.ref || undefined
-    };
+    if (!pay.amount || isNaN(pay.amount) || Number(pay.amount) <= 0) {
+      showToast("Please enter a valid amount");
+      return;
+    }
 
+    let target;
     try {
-      if (navigator.sendBeacon) {
-        const blob = new Blob([JSON.stringify(payload)], { type: "application/json" });
-        navigator.sendBeacon("/save", blob);
-        return;
-      }
-    } catch (_e) {
-      // ignore
+      target = resolvePaymentInput(pay.mobileNumber, pay.upiId);
+    } catch (e) {
+      showToast(e.message);
+      return;
     }
 
+    const tel = buildDialString(settings.phoneNumber, target, pay.amount, settings);
+    
+    // Save transaction
+    const payload = { ...pay, date: new Date().toISOString() };
     try {
       fetch("/save", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
         keepalive: true
-      }).catch(() => {});
-    } catch (_e) {
-      // ignore
-    }
+      });
+    } catch (e) {}
+
+    setLoading(true);
+    setTimeout(() => {
+      setLoading(false);
+      window.location.href = tel;
+    }, 800);
   }
 
-  function makeDial() {
-    const amt = Number(pay.amount);
-    if (!Number.isFinite(amt) || amt <= 0) {
-      showToast("Valid Amount required");
-      return null;
-    }
-
-    let mobile_or_upi;
-    try {
-      mobile_or_upi = resolvePaymentInput(pay.mobileNumber, pay.upiId);
-    } catch (e) {
-      showToast(e.message);
-      return null;
-    }
-
-    const tel = buildDialString(
-      settings.phoneNumber,
-      mobile_or_upi,
-      pay.amount,
-      settings
-    );
-    return tel;
-  }
-
-  function openDialModal() {
-    const tel = makeDial();
-    if (!tel) return;
-    setModal({
-      open: true,
-      title: "Dial String",
-      text: tel
-    });
-  }
-
-  async function doPay() {
-    if (!settings.phoneNumber) {
-      showToast("Set phone number in Settings");
-      setTab("settings");
-      return;
-    }
-    if (!pay.name) {
-      showToast("Name required");
-      return;
-    }
-
-    const tel = makeDial();
-    if (!tel) return;
-
-    saveTransactionFireAndForget();
-    window.location.href = tel;
-  }
-
-  function HomeScreen() {
-    return h(
-      React.Fragment,
-      null,
-      h(
-        Card,
-        { soft: true },
-        null,
-        h("div", { className: "h" }, "Quick Actions"),
-        h(
-          "div",
-          { className: "btnRowSingle" },
+  function renderHome() {
+    return h("div", { className: "fade-in" },
+      h(Header, { title: "UPI Assistant", subtitle: "Modern, Fast, Secure" }),
+      h(Card, { className: "text-center" },
+        h("div", { className: "flex-col" },
           h(Button, { variant: "cta", onClick: () => setTab("scan") }, "📸 Scan QR Code"),
-          h(
-            "div",
-            { className: "btnRow" },
-            h(Button, { variant: "primary", onClick: openDialModal }, "Build Dial"),
-            h(Button, { onClick: doPay }, "Pay Now")
-          )
-        ),
-        h("div", { style: { height: 10 } }),
-        h(
-          "div",
-          { className: "btnRow" },
-          h(
-            Button,
-            {
-              onClick: async () => {
-                await loadHistory(historyDays);
-                setTab("history");
-              }
-            },
-            "Recent"
-          ),
-          h(Button, { onClick: () => setTab("settings") }, "Settings")
-        )
-      ),
-      h(
-        Card,
-        null,
-        h("div", { className: "h" }, "Payment Details"),
-        h(
-          "div",
-          { className: "row" },
-          h("div", null, h("div", { className: "label" }, "Name"), h("input", {
-            className: "input",
-            value: pay.name,
-            onChange: (e) => setPay((p) => ({ ...p, name: e.target.value })),
-            placeholder: "Merchant or Person"
-          })),
-          h(
-            "div",
-            null,
-            h("div", { className: "label" }, "UPI ID (Fallback)"),
-            h("input", {
-              className: "input",
-              value: pay.upiId,
-              onChange: (e) => setPay((p) => ({ ...p, upiId: e.target.value })),
-              placeholder: "name@bank"
-            })
-          ),
-          h(
-            "div",
-            { className: "grid2" },
-            h(
-              "div",
-              null,
-              h("div", { className: "label" }, "Mobile Number"),
-              h("input", {
-                className: "input",
-                inputMode: "tel",
-                value: pay.mobileNumber,
-                onChange: (e) =>
-                  setPay((p) => ({ ...p, mobileNumber: e.target.value })),
-                placeholder: "9876543210"
-              })
-            ),
-            h(
-              "div",
-              null,
-              h("div", { className: "label" }, "Amount"),
-              h("input", {
-                className: "input",
-                inputMode: "decimal",
-                value: pay.amount,
-                onChange: (e) =>
-                  setPay((p) => ({ ...p, amount: e.target.value })),
-                placeholder: "0.00"
-              })
-            )
-          ),
-          h(
-            "div",
-            null,
-            h("div", { className: "label" }, "Reference (Optional)"),
-            h("input", {
-              className: "input",
-              value: pay.ref,
-              onChange: (e) => setPay((p) => ({ ...p, ref: e.target.value })),
-              placeholder: "Any note"
-            })
+          h("div", { className: "flex-row" },
+            h(Button, { className: "flex-1", onClick: () => setTab("pay") }, "💸 Send Money"),
+            h(Button, { className: "flex-1", onClick: () => setTab("history") }, "🕒 History")
           )
         )
       ),
-      h(
-        Card,
-        null,
-        h("div", { className: "h" }, "Presets"),
-        presets.length
-          ? h(
-              "div",
-              { className: "row" },
-              presets.map((pr, idx) =>
-                h(
-                  "div",
-                  { key: idx, className: "txItem" },
-                  h(
-                    "div",
-                    null,
-                    h("div", { className: "txName" }, pr.name),
-                    h(
-                      "div",
-                      { className: "txMeta" },
-                      `${pr.mobileNumber || pr.upiId} • ${formatINR(pr.amount)}`
-                    )
-                  ),
-                  h(
-                    "div",
-                    { style: { display: "flex", gap: 8 } },
-                    h(
-                      "button",
-                      {
-                        className: "tab tabActive",
-                        onClick: () =>
-                          setPay((p) => ({
-                            ...p,
-                            name: pr.name,
-                            mobileNumber: String(pr.mobileNumber || ""),
-                            upiId: String(pr.upiId || ""),
-                            amount: String(pr.amount || "")
-                          }))
-                      },
-                      "Apply"
-                    ),
-                    h(
-                      "button",
-                      {
-                        className: "tab",
-                        onClick: () => {
-                          setPresets((arr) => arr.filter((_, i) => i !== idx));
-                          showToast("Removed preset");
-                        }
-                      },
-                      "Delete"
-                    )
-                  )
-                )
-              )
-            )
-          : h("div", { className: "hint" }, "No presets yet."),
-        h("div", { style: { height: 12 } }),
-        h(
-          Button,
-          {
-            onClick: () => {
-              const name = pay.name.trim();
-              const amount = Number(pay.amount);
-              
-              try {
-                resolvePaymentInput(pay.mobileNumber, pay.upiId);
-              } catch (e) {
-                showToast(e.message);
-                return;
-              }
-
-              if (!name || !Number.isFinite(amount) || amount <= 0) {
-                showToast("Fill Name and valid Amount");
-                return;
-              }
-              setPresets((arr) => [
-                {
-                  name,
-                  mobileNumber: pay.mobileNumber.trim(),
-                  upiId: pay.upiId.trim(),
-                  amount
-                },
-                ...arr
-              ].slice(0, 12));
-              showToast("Preset added");
-            }
-          },
-          "+ Save as Preset"
-        )
-      ),
-      h(
-        Card,
-        null,
-        h("div", { className: "h" }, "Recent Payments"),
-        history.slice(0, 3).map((tx, i) => h(TransactionItem, { key: i, tx, onUse: useTxForPay })),
-        !history.length ? h("div", { className: "hint" }, "No transactions yet.") : null
+      h("div", { className: "mt-2" },
+        h("h3", { className: "mb-1" }, "Recent Transactions"),
+        history.length > 0 ? 
+          history.slice(0, 5).map((tx, idx) => h(TransactionItem, { key: idx, tx, onUse: handleUseTx })) :
+          h("p", { className: "text-secondary text-center mt-2" }, "No recent transactions")
       )
     );
   }
 
-
-
-  function ScanScreen() {
-    const videoRef = React.useRef(null);
-    const canvasRef = React.useRef(null);
-    const streamRef = React.useRef(null);
-    const loopRef = React.useRef(0);
-    const detectorRef = React.useRef(null);
-
-    const [facing, setFacing] = useStoredState("upi.scanFacing", "environment");
-    const [running, setRunning] = React.useState(false);
-    const [scanErr, setScanErr] = React.useState("");
-
-    function stopCamera() {
-      window.clearInterval(loopRef.current);
-      loopRef.current = 0;
-      setRunning(false);
-      setScanErr("");
-
-      const stream = streamRef.current;
-      streamRef.current = null;
-      if (stream && stream.getTracks) {
-        try {
-          stream.getTracks().forEach((t) => t.stop());
-        } catch (_e) {
-          // ignore
-        }
-      }
-      const v = videoRef.current;
-      if (v) v.srcObject = null;
-    }
-
-    async function startCamera() {
-      setScanErr("");
-      setScanParsed(null);
-
-      if (!("mediaDevices" in navigator) || !navigator.mediaDevices.getUserMedia) {
-        setScanErr("Camera not available in this browser/WebView.");
-        return;
-      }
-      if (!("BarcodeDetector" in window)) {
-        setScanErr("QR decode not supported here (BarcodeDetector missing). Use manual paste below.");
-        return;
-      }
-
-      try {
-        if (!detectorRef.current) {
-          detectorRef.current = new window.BarcodeDetector({ formats: ["qr_code"] });
-        }
-      } catch (_e) {
-        setScanErr("QR decode not supported (BarcodeDetector init failed). Use manual paste below.");
-        return;
-      }
-
-      stopCamera();
-      setRunning(true);
-
-      try {
-        const constraints = {
-          audio: false,
-          video: {
-            facingMode: facing,
-            width: { ideal: 960 },
-            height: { ideal: 540 }
+  function renderScan() {
+    return h("div", { className: "fade-in" },
+      h(Header, { title: "Scan QR", subtitle: "Paste UPI URI or Scan" }),
+      h(Card, null,
+        h(Input, {
+          label: "UPI URI",
+          placeholder: "upi://pay?...",
+          onChange: (val) => {
+            if (val.startsWith("upi://")) handleScan(val);
           }
-        };
-        const stream = await navigator.mediaDevices.getUserMedia(constraints);
-        streamRef.current = stream;
-
-        const v = videoRef.current;
-        if (!v) throw new Error("video element missing");
-        v.srcObject = stream;
-        await v.play();
-
-        const canvas = canvasRef.current;
-        if (!canvas) throw new Error("canvas missing");
-        const ctx = canvas.getContext("2d", { willReadFrequently: true });
-        if (!ctx) throw new Error("canvas context missing");
-
-        loopRef.current = window.setInterval(async () => {
-          try {
-            const vw = v.videoWidth || 0;
-            const vh = v.videoHeight || 0;
-            if (!vw || !vh) return;
-
-            // Downscale for low CPU on low-end devices.
-            const targetW = Math.min(520, vw);
-            const targetH = Math.floor((targetW * vh) / vw);
-            canvas.width = targetW;
-            canvas.height = targetH;
-            ctx.drawImage(v, 0, 0, targetW, targetH);
-
-            const detector = detectorRef.current;
-            if (!detector) return;
-            const codes = await detector.detect(canvas);
-            if (!codes || !codes.length) return;
-
-            const raw = String(codes[0]?.rawValue || "").trim();
-            if (!raw) return;
-            const parsed = parseUpiUri(raw);
-            setScanParsed(parsed);
-            if (parsed.ok) {
-              stopCamera();
-              applyParsedToPay(parsed);
-            } else {
-              showToast(parsed.error);
-            }
-          } catch (_e) {
-            // Swallow loop errors to keep camera stable.
-          }
-        }, 220);
-      } catch (e) {
-        stopCamera();
-        setScanErr(e?.message || "Camera start failed");
-      }
-    }
-
-    React.useEffect(() => {
-      // Clean up whenever leaving the scan tab.
-      if (tab !== "scan") stopCamera();
-      return () => stopCamera();
-      // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [tab]);
-
-    return h(
-      React.Fragment,
-      null,
-      h(
-        Card,
-        { soft: true },
-        null,
-        h("div", { className: "h" }, "Scan QR"),
-        h(
-          "div",
-          { className: "scannerStage" },
-          h("video", { className: "scannerVideo", ref: videoRef, playsInline: true, muted: true }),
-          h("canvas", { ref: canvasRef, style: { display: "none" } }),
-          h(
-            "div",
-            { className: "scannerOverlay" },
-            h(
-              "div",
-              { className: "scannerTopHint" },
-              h("div", { className: "badge" }, running ? "Scanning…" : "Ready"),
-              h("div", { className: "badge" }, facing === "environment" ? "Back camera" : "Front camera")
-            ),
-            h(
-              "div",
-              { className: "scannerFrame" },
-              h("div", { className: "scannerGlow" }),
-              running ? h("div", { className: "scannerLine" }) : null
-            )
-          )
-        ),
-        h("div", { style: { height: 10 } }),
-        h(
-          "div",
-          { className: "btnRow" },
-          h(
-            Button,
-            { variant: "cta", onClick: running ? stopCamera : startCamera },
-            running ? "Stop" : "Start Camera"
-          ),
-          h(
-            Button,
-            {
-              onClick: async () => {
-                const next = facing === "environment" ? "user" : "environment";
-                setFacing(next);
-                if (running) {
-                  stopCamera();
-                  window.setTimeout(startCamera, 120);
-                }
-              }
-            },
-            "Flip"
-          )
-        ),
-        scanErr ? h("div", { style: { marginTop: 10 }, className: "hint" }, scanErr) : null,
-        h("div", { style: { marginTop: 10 }, className: "hint" }, "Tip: Works best with good light. If camera/QR decode isn't supported, use manual paste below.")
-      ),
-      h(
-        Card,
-        null,
-        h("div", { className: "h" }, "Manual Paste (Fallback)"),
-        h("div", { className: "hint" }, "Paste a UPI QR payload like `upi://pay?pa=...&pn=...&am=...`."),
-        h("div", { style: { height: 10 } }),
-        h("textarea", {
-          className: "textarea mono",
-          value: scanText,
-          onChange: (e) => setScanText(e.target.value),
-          placeholder: "upi://pay?pa=merchant@upi&pn=Merchant&am=1.00"
         }),
-        h("div", { style: { height: 10 } }),
-        h(
-          "div",
-          { className: "btnRow" },
-          h(
-            Button,
-            {
-              variant: "primary",
-              onClick: () => {
-                const parsed = parseUpiUri(scanText);
-                setScanParsed(parsed);
-                if (!parsed.ok) showToast(parsed.error);
-                else showToast("Parsed");
-              }
-            },
-            "Parse"
+        h("p", { className: "text-secondary" }, "Paste a UPI URI to simulate a scan.")
+      ),
+      h(Button, { onClick: () => setTab("home") }, "Back")
+    );
+  }
+
+  function renderScanResult() {
+    return h("div", { className: "fade-in" },
+      h(Header, { title: "Payment Details", subtitle: "Confirm information" }),
+      h(Card, null,
+        h("div", { className: "flex-col" },
+          h("div", null, 
+            h("h4", null, pay.name || "Unknown Merchant"),
+            h("p", { className: "text-secondary" }, pay.upiId)
           ),
-          h(
-            Button,
-            {
-              onClick: () => {
-                setScanText("");
-                setScanParsed(null);
-              }
-            },
-            "Clear"
+          h(Input, {
+            label: "Mobile Number (Primary)",
+            value: pay.mobileNumber,
+            onChange: (v) => setPay({...pay, mobileNumber: v}),
+            inputMode: "tel",
+            placeholder: "Optional if UPI ID exists"
+          }),
+          h(Input, {
+            label: "UPI ID (Fallback)",
+            value: pay.upiId,
+            onChange: (v) => setPay({...pay, upiId: v}),
+            placeholder: "name@bank"
+          }),
+          h(Input, {
+            label: "Amount",
+            value: pay.amount,
+            onChange: (v) => setPay({...pay, amount: v}),
+            inputMode: "decimal",
+            placeholder: "0.00"
+          }),
+          h(Button, { variant: "primary", className: "mt-1", onClick: doPay, disabled: loading }, 
+            loading ? "Processing..." : "Proceed to Pay"
           )
         )
       ),
-      scanParsed && scanParsed.ok
-        ? h(
-            Card,
-            null,
-            h("div", { className: "h" }, "Parsed"),
-            h(
-              "div",
-              { className: "kv" },
-              h("b", null, "UPI ID"),
-              h("div", { className: "mono" }, scanParsed.upiId || "-"),
-              h("b", null, "Name"),
-              h("div", null, scanParsed.name || "-"),
-              h("b", null, "Amount"),
-              h("div", null, scanParsed.amount !== "" ? formatINR(scanParsed.amount) : "-"),
-              h("b", null, "Note"),
-              h("div", null, scanParsed.note || "-")
-            ),
-            h("div", { style: { height: 10 } }),
-            h(
-              Button,
-              { variant: "primary", onClick: () => applyParsedToPay(scanParsed) },
-              "Use For Pay"
-            )
-          )
-        : null,
-      scanParsed && !scanParsed.ok
-        ? h(
-            Card,
-            null,
-            h("div", { className: "h" }, "Error"),
-            h("div", { className: "hint" }, scanParsed.error)
-          )
-        : null
+      h(Button, { onClick: () => setTab("home") }, "Cancel")
     );
   }
 
-  function HistoryScreen() {
-    return h(
-      React.Fragment,
-      null,
-      h(
-        Card,
-        null,
-        h("div", { className: "h" }, "History"),
-        h(
-          "div",
-          { className: "grid2" },
-          h(
-            Button,
-            {
-              variant: historyDays === 7 ? "primary" : undefined,
-              onClick: () => setHistoryDays(7)
-            },
-            "7 days"
+  function renderPay() {
+    return h("div", { className: "fade-in" },
+      h(Header, { title: "Send Money", subtitle: "Enter payment details" }),
+      h(Card, null,
+        h("div", { className: "flex-col" },
+          h(Input, { label: "Name", value: pay.name, onChange: (v) => setPay({...pay, name: v}), placeholder: "Recipient Name" }),
+          h(Input, { label: "Mobile Number", value: pay.mobileNumber, onChange: (v) => setPay({...pay, mobileNumber: v}), inputMode: "tel", placeholder: "9876543210" }),
+          h(Input, { label: "UPI ID (Fallback)", value: pay.upiId, onChange: (v) => setPay({...pay, upiId: v}), placeholder: "name@bank" }),
+          h(Input, { label: "Amount", value: pay.amount, onChange: (v) => setPay({...pay, amount: v}), inputMode: "decimal", placeholder: "0.00" }),
+          h(Button, { variant: "primary", onClick: doPay, disabled: loading }, loading ? "Processing..." : "Pay Now")
+        )
+      ),
+      h(Button, { onClick: () => setTab("home") }, "Back")
+    );
+  }
+
+  function renderHistory() {
+    return h("div", { className: "fade-in" },
+      h(Header, { title: "History", subtitle: "Your recent payments" }),
+      h(Card, null,
+        history.length > 0 ? 
+          history.map((tx, idx) => h(TransactionItem, { key: idx, tx, onUse: handleUseTx })) :
+          h("p", { className: "text-secondary text-center" }, "No history found")
+      ),
+      h(Button, { onClick: () => setTab("home") }, "Back")
+    );
+  }
+
+  function renderSettings() {
+    return h("div", { className: "fade-in" },
+      h(Header, { title: "Settings", subtitle: "Configure app behavior" }),
+      h(Card, null,
+        h("div", { className: "flex-col" },
+          h(Input, { label: "Your Phone Number", value: settings.phoneNumber, onChange: (v) => setSettings({...settings, phoneNumber: v}), inputMode: "tel", placeholder: "9876543210" }),
+          h("div", { className: "flex-row" },
+            h(Input, { className: "flex-1", label: "Delay 1", value: settings.step1, onChange: (v) => setSettings({...settings, step1: v}), inputMode: "numeric" }),
+            h(Input, { className: "flex-1", label: "Delay 2", value: settings.step2, onChange: (v) => setSettings({...settings, step2: v}), inputMode: "numeric" })
           ),
-          h(
-            Button,
-            {
-              variant: historyDays === 30 ? "primary" : undefined,
-              onClick: () => setHistoryDays(30)
-            },
-            "30 days"
+          h("div", { className: "flex-row" },
+            h(Input, { className: "flex-1", label: "Delay 3", value: settings.step3, onChange: (v) => setSettings({...settings, step3: v}), inputMode: "numeric" }),
+            h(Input, { className: "flex-1", label: "Delay 4", value: settings.step4, onChange: (v) => setSettings({...settings, step4: v}), inputMode: "numeric" })
           )
-        ),
-        h("div", { style: { height: 10 } }),
-        history.length
-          ? h(
-              "div",
-              { className: "row" },
-              history.map((tx, i) => h(TransactionItem, { key: i, tx, onUse: useTxForPay }))
-            )
-          : h("div", { className: "hint" }, "No transactions yet.")
-      )
+        )
+      ),
+      h(Button, { onClick: () => setTab("home") }, "Back")
     );
   }
 
-  function SettingsScreen() {
-    const delays = settings;
-    const telPreview = buildDialString(settings.phoneNumber, "1234", "1.00", delays);
-
-    function updateNum(key, value) {
-      setSettings((s) => ({ ...s, [key]: value }));
+  const content = () => {
+    switch (tab) {
+      case "home": return renderHome();
+      case "scan": return renderScan();
+      case "scan-result": return renderScanResult();
+      case "pay": return renderPay();
+      case "history": return renderHistory();
+      case "settings": return renderSettings();
+      default: return renderHome();
     }
+  };
 
-    return h(
-      React.Fragment,
-      null,
-      h(
-        Card,
-        null,
-        h("div", { className: "h" }, "IVR Settings"),
-        h(
-          "div",
-          { className: "row" },
-          h(
-            "div",
-            null,
-            h("div", { className: "label" }, "Phone number"),
-            h("input", {
-              className: "input",
-              inputMode: "tel",
-              value: settings.phoneNumber,
-              onChange: (e) => updateNum("phoneNumber", e.target.value),
-              placeholder: "e.g. 1800123456"
-            })
-          ),
-          h(
-            "div",
-            { className: "grid2" },
-            h(
-              "div",
-              null,
-              h("div", { className: "label" }, "Delay 1 (commas)"),
-              h("input", {
-                className: "input",
-                inputMode: "numeric",
-                value: String(settings.step1),
-                onChange: (e) => updateNum("step1", e.target.value)
-              })
-            ),
-            h(
-              "div",
-              null,
-              h("div", { className: "label" }, "Delay 2 (commas)"),
-              h("input", {
-                className: "input",
-                inputMode: "numeric",
-                value: String(settings.step2),
-                onChange: (e) => updateNum("step2", e.target.value)
-              })
-            )
-          ),
-          h(
-            "div",
-            { className: "grid2" },
-            h(
-              "div",
-              null,
-              h("div", { className: "label" }, "Delay 3 (commas)"),
-              h("input", {
-                className: "input",
-                inputMode: "numeric",
-                value: String(settings.step3),
-                onChange: (e) => updateNum("step3", e.target.value)
-              })
-            ),
-            h(
-              "div",
-              null,
-              h("div", { className: "label" }, "Delay 4 (commas)"),
-              h("input", {
-                className: "input",
-                inputMode: "numeric",
-                value: String(settings.step4),
-                onChange: (e) => updateNum("step4", e.target.value)
-              })
-            )
-          )
-        ),
-        h("div", { style: { height: 10 } }),
-        h("div", { className: "pill" }, "Preview:"),
-        h("div", { style: { height: 8 } }),
-        h("div", { className: "hint mono" }, telPreview),
-        h("div", { style: { height: 10 } }),
-        h(
-          Button,
-          {
-            variant: "danger",
-            onClick: () => {
-              setSettings({ phoneNumber: "", step1: 2, step2: 2, step3: 2, step4: 2 });
-              showToast("Settings reset");
-            }
-          },
-          "Reset"
-        )
-      ),
-      h(
-        Card,
-        null,
-        h("div", { className: "h" }, "Data"),
-        h(
-          "div",
-          { className: "hint" },
-          "Transactions are stored locally in ",
-          h("span", { className: "mono" }, "data.json"),
-          "."
-        ),
-        h("div", { style: { height: 10 } }),
-        h(
-          Button,
-          {
-            onClick: async () => {
-              await loadHistory(30);
-              showToast("Synced");
-            }
-          },
-          "Sync History"
-        )
-      )
-    );
-  }
-
-  const screen =
-    tab === "home"
-      ? h(HomeScreen)
-      : tab === "scan"
-        ? h(ScanScreen)
-        : tab === "history"
-          ? h(HistoryScreen)
-          : h(SettingsScreen);
-
-  return h(
-    "div",
-    { className: "app" },
-    h(
-      "header",
-      { className: "topbar" },
-      h("div", { className: "title" }, "UPI Assistant"),
-      h("div", { className: "subtitle" }, tab === "home" ? "Fast pay + presets" : tab)
-    ),
-    h("main", { className: "content" }, h("div", { key: tab, className: "page" }, screen)),
-    h(Nav, { tab, setTab }),
-    h(Toast, { text: toast.text, show: toast.show }),
-    h(
-      Modal,
-      {
-        open: modal.open,
-        title: modal.title,
-        onClose: () => setModal({ open: false, title: "", text: "" })
-      },
-      h("div", { className: "hint" }, "Tap to copy, or close."),
-      h("div", { style: { height: 10 } }),
-      h(
-        "button",
-        {
-          className: "input mono",
-          onClick: async () => {
-            try {
-              await navigator.clipboard.writeText(modal.text || "");
-              showToast("Copied");
-            } catch (_e) {
-              showToast("Copy not available");
-            }
-          }
-        },
-        modal.text || ""
-      )
-    )
+  return h("div", { className: "app-container" },
+    content(),
+    h(BottomNav, { activeTab: tab, onTabChange: setTab }),
+    h(Toast, { show: toast.show, message: toast.message })
   );
 }
 
-function boot() {
-  const root = document.getElementById("root");
-  ReactDOM.render(h(App), root);
-}
-
-boot();
+const root = ReactDOM.createRoot(document.getElementById("root"));
+root.render(h(App));
