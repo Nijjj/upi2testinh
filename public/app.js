@@ -70,6 +70,14 @@ function buildDialString(number, mobile_or_upi, amount, delays) {
   return `tel:${num}${d1}2${d2}1${d3}${target}${d4}${amt}`;
 }
 
+function resolvePaymentInput(mobileNumber, upiId) {
+  const m = String(mobileNumber || "").trim();
+  const u = String(upiId || "").trim();
+  if (m) return m;
+  if (u) return u;
+  throw new Error("Mobile Number or UPI ID required");
+}
+
 function useStoredState(key, initialValue) {
   const [value, setValue] = React.useState(() => {
     try {
@@ -139,7 +147,7 @@ function TransactionItem({ tx, onUse }) {
       h(
         "div",
         { className: "txMeta" },
-        (tx?.upiId ? `${tx.upiId} ` : "") + (dateLabel ? `• ${dateLabel}` : "")
+        (tx?.upiId || tx?.mobileNumber || "") + (dateLabel ? ` • ${dateLabel}` : "")
       )
     ),
     h(
@@ -249,7 +257,11 @@ function App() {
     try {
       const res = await fetch(`/history?days=${encodeURIComponent(days)}`);
       const json = await res.json();
-      setHistory(Array.isArray(json) ? json : []);
+      const list = Array.isArray(json) ? json : [];
+      setHistory(list.map(t => ({
+        ...t,
+        mobileNumber: t.mobileNumber || t.digits || ""
+      })));
     } catch (_e) {
       setHistory([]);
     }
@@ -265,6 +277,7 @@ function App() {
       ...p,
       name: parsed.name || p.name,
       upiId: parsed.upiId || p.upiId,
+      mobileNumber: "",
       amount: parsed.amount !== "" ? String(parsed.amount) : p.amount
     }));
     setTab("home");
@@ -275,7 +288,7 @@ function App() {
     setPay({
       name: tx?.name || "",
       upiId: tx?.upiId || "",
-      mobileNumber: "",
+      mobileNumber: tx?.mobileNumber || "",
       amount: String(tx?.amount || ""),
       ref: ""
     });
@@ -287,6 +300,7 @@ function App() {
     const payload = {
       name: pay.name,
       upiId: pay.upiId,
+      mobileNumber: pay.mobileNumber,
       amount: pay.amount,
       ref: pay.ref || undefined
     };
@@ -310,6 +324,7 @@ function App() {
     const payload = {
       name: pay.name,
       upiId: pay.upiId,
+      mobileNumber: pay.mobileNumber,
       amount: pay.amount,
       ref: pay.ref || undefined
     };
@@ -337,9 +352,17 @@ function App() {
   }
 
   function makeDial() {
-    const mobile_or_upi = pay.mobileNumber || pay.upiId;
-    if (!mobile_or_upi) {
-      showToast("Mobile Number or UPI ID required");
+    const amt = Number(pay.amount);
+    if (!Number.isFinite(amt) || amt <= 0) {
+      showToast("Valid Amount required");
+      return null;
+    }
+
+    let mobile_or_upi;
+    try {
+      mobile_or_upi = resolvePaymentInput(pay.mobileNumber, pay.upiId);
+    } catch (e) {
+      showToast(e.message);
       return null;
     }
 
@@ -368,8 +391,8 @@ function App() {
       setTab("settings");
       return;
     }
-    if (!pay.name || !pay.amount) {
-      showToast("Name and amount required");
+    if (!pay.name) {
+      showToast("Name required");
       return;
     }
 
@@ -546,14 +569,28 @@ function App() {
           {
             onClick: () => {
               const name = pay.name.trim();
-              const mobileNumber = pay.mobileNumber.trim();
-              const upiId = pay.upiId.trim();
               const amount = Number(pay.amount);
-              if (!name || (!mobileNumber && !upiId) || !Number.isFinite(amount) || amount <= 0) {
-                showToast("Fill Name, Target, and Amount");
+              
+              try {
+                resolvePaymentInput(pay.mobileNumber, pay.upiId);
+              } catch (e) {
+                showToast(e.message);
                 return;
               }
-              setPresets((arr) => [{ name, mobileNumber, upiId, amount }, ...arr].slice(0, 12));
+
+              if (!name || !Number.isFinite(amount) || amount <= 0) {
+                showToast("Fill Name and valid Amount");
+                return;
+              }
+              setPresets((arr) => [
+                {
+                  name,
+                  mobileNumber: pay.mobileNumber.trim(),
+                  upiId: pay.upiId.trim(),
+                  amount
+                },
+                ...arr
+              ].slice(0, 12));
               showToast("Preset added");
             }
           },
