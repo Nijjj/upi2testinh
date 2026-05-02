@@ -1,0 +1,813 @@
+/* global React, ReactDOM */
+
+const h = React.createElement;
+
+function formatINR(amount) {
+  const num = Number(amount);
+  if (!Number.isFinite(num)) return "INR 0.00";
+  return `INR ${num.toFixed(2)}`;
+}
+
+function nowIso() {
+  return new Date().toISOString();
+}
+
+function safeDecode(value) {
+  try {
+    return decodeURIComponent(value || "");
+  } catch (_e) {
+    return value || "";
+  }
+}
+
+function parseUpiUri(text) {
+  const raw = String(text || "").trim();
+  if (!raw) return { ok: false, error: "Empty input" };
+  if (!raw.toLowerCase().startsWith("upi://pay?")) {
+    return { ok: false, error: "Not a upi://pay URI" };
+  }
+
+  const q = raw.split("?", 2)[1] || "";
+  const pairs = q.split("&").filter(Boolean);
+  const map = {};
+  for (const part of pairs) {
+    const [k, v = ""] = part.split("=", 2);
+    if (!k) continue;
+    map[k] = safeDecode(v.replace(/\+/g, "%20"));
+  }
+
+  const upiId = String(map.pa || "").trim();
+  const name = String(map.pn || "").trim();
+  const amount = map.am ? Number(map.am) : NaN;
+
+  return {
+    ok: true,
+    raw,
+    upiId,
+    name,
+    amount: Number.isFinite(amount) ? amount : "",
+    note: String(map.tn || "").trim()
+  };
+}
+
+function clampInt(n, min, max) {
+  const v = Math.floor(Number(n));
+  if (!Number.isFinite(v)) return min;
+  return Math.max(min, Math.min(max, v));
+}
+
+function buildDialString(number, digits, amount, delays) {
+  const num = String(number || "").trim();
+  const dg = String(digits || "").replace(/\D/g, "");
+  const amt = String(amount || "").trim();
+
+  const d1 = ",".repeat(clampInt(delays.step1, 0, 10));
+  const d2 = ",".repeat(clampInt(delays.step2, 0, 10));
+  const d3 = ",".repeat(clampInt(delays.step3, 0, 10));
+  const d4 = ",".repeat(clampInt(delays.step4, 0, 10));
+
+  // Format target: tel:<number>,,2,,1,,<digits>,,<amount>
+  return `tel:${num}${d1}2${d2}1${d3}${dg}${d4}${amt}`;
+}
+
+function useStoredState(key, initialValue) {
+  const [value, setValue] = React.useState(() => {
+    try {
+      const raw = localStorage.getItem(key);
+      if (!raw) return initialValue;
+      return JSON.parse(raw);
+    } catch (_e) {
+      return initialValue;
+    }
+  });
+
+  React.useEffect(() => {
+    try {
+      localStorage.setItem(key, JSON.stringify(value));
+    } catch (_e) {
+      // ignore
+    }
+  }, [key, value]);
+
+  return [value, setValue];
+}
+
+function Button(props) {
+  const className =
+    "btn " +
+    (props.variant === "primary"
+      ? "btnPrimary"
+      : props.variant === "danger"
+        ? "btnDanger"
+        : "");
+  return h(
+    "button",
+    { className, onClick: props.onClick, type: props.type || "button" },
+    props.children
+  );
+}
+
+function Card(props) {
+  return h("section", { className: "card" }, props.children);
+}
+
+function TransactionItem({ tx, onUse }) {
+  const date = tx?.date ? new Date(tx.date) : null;
+  const dateLabel = date && !Number.isNaN(date.valueOf()) ? date.toLocaleString() : "";
+  return h(
+    "div",
+    { className: "txItem" },
+    h(
+      "div",
+      null,
+      h("div", { className: "txName" }, tx?.name || "Unknown"),
+      h(
+        "div",
+        { className: "txMeta" },
+        (tx?.upiId ? `${tx.upiId} ` : "") + (dateLabel ? `• ${dateLabel}` : "")
+      )
+    ),
+    h(
+      "div",
+      { style: { display: "grid", justifyItems: "end", gap: 6 } },
+      h("div", { className: "txAmt" }, formatINR(tx?.amount)),
+      onUse
+        ? h(
+            "button",
+            { className: "tab tabActive", onClick: () => onUse(tx) },
+            "Use"
+          )
+        : null
+    )
+  );
+}
+
+function Toast({ text, show }) {
+  return h("div", { className: "toast " + (show ? "toastShow" : "") }, text);
+}
+
+function Modal({ open, title, children, onClose }) {
+  return h(
+    React.Fragment,
+    null,
+    h("div", {
+      className: "modalOverlay " + (open ? "modalOverlayShow" : ""),
+      onClick: onClose
+    }),
+    h(
+      "div",
+      { className: "modal " + (open ? "modalShow" : "") },
+      h("div", { className: "modalTitle" }, title),
+      children,
+      h("div", { style: { marginTop: 10 } }, h(Button, { onClick: onClose }, "Close"))
+    )
+  );
+}
+
+function Nav({ tab, setTab }) {
+  const items = [
+    { id: "home", label: "Home" },
+    { id: "scan", label: "Scan" },
+    { id: "history", label: "History" },
+    { id: "settings", label: "Settings" }
+  ];
+  return h(
+    "nav",
+    { className: "nav" },
+    h(
+      "div",
+      { className: "navInner" },
+      items.map((it) =>
+        h(
+          "button",
+          {
+            key: it.id,
+            className: "tab " + (tab === it.id ? "tabActive" : ""),
+            onClick: () => setTab(it.id)
+          },
+          it.label
+        )
+      )
+    )
+  );
+}
+
+function App() {
+  const [tab, setTab] = useStoredState("upi.tab", "home");
+
+  const [settings, setSettings] = useStoredState("upi.settings", {
+    phoneNumber: "",
+    step1: 2,
+    step2: 2,
+    step3: 2,
+    step4: 2
+  });
+
+  const [presets, setPresets] = useStoredState("upi.presets", [
+    { name: "Milk", digits: "101", amount: 30 },
+    { name: "Tea", digits: "102", amount: 20 }
+  ]);
+
+  const [scanText, setScanText] = React.useState("");
+  const [scanParsed, setScanParsed] = React.useState(null);
+
+  const [pay, setPay] = React.useState({
+    name: "",
+    upiId: "",
+    digits: "",
+    amount: "",
+    ref: ""
+  });
+
+  const [history, setHistory] = React.useState([]);
+  const [historyDays, setHistoryDays] = React.useState(7);
+
+  const [toast, setToast] = React.useState({ show: false, text: "" });
+  const [modal, setModal] = React.useState({ open: false, title: "", text: "" });
+
+  function showToast(text) {
+    setToast({ show: true, text });
+    window.setTimeout(() => setToast({ show: false, text: "" }), 1600);
+  }
+
+  async function loadHistory(days) {
+    try {
+      const res = await fetch(`/history?days=${encodeURIComponent(days)}`);
+      const json = await res.json();
+      setHistory(Array.isArray(json) ? json : []);
+    } catch (_e) {
+      setHistory([]);
+    }
+  }
+
+  React.useEffect(() => {
+    if (tab === "history" || tab === "home") loadHistory(historyDays);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab, historyDays]);
+
+  function applyParsedToPay(parsed) {
+    setPay((p) => ({
+      ...p,
+      name: parsed.name || p.name,
+      upiId: parsed.upiId || p.upiId,
+      amount: parsed.amount !== "" ? String(parsed.amount) : p.amount
+    }));
+    setTab("home");
+    showToast("Loaded from QR");
+  }
+
+  function useTxForPay(tx) {
+    setPay({
+      name: tx?.name || "",
+      upiId: tx?.upiId || "",
+      digits: "",
+      amount: String(tx?.amount || ""),
+      ref: ""
+    });
+    setTab("home");
+    showToast("Loaded from history");
+  }
+
+  async function saveTransaction() {
+    const payload = {
+      name: pay.name,
+      upiId: pay.upiId,
+      amount: pay.amount,
+      ref: pay.ref || undefined
+    };
+
+    const res = await fetch("/save", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      showToast(json?.error || "Save failed");
+      return null;
+    }
+    showToast("Saved");
+    await loadHistory(historyDays);
+    return json;
+  }
+
+  function makeDial() {
+    const tel = buildDialString(
+      settings.phoneNumber,
+      pay.digits,
+      pay.amount,
+      settings
+    );
+    return tel;
+  }
+
+  function openDialModal() {
+    const tel = makeDial();
+    setModal({
+      open: true,
+      title: "Dial String",
+      text: tel
+    });
+  }
+
+  async function doPay() {
+    // This is a personal assistant tool; "Pay" = build tel: string and save record.
+    if (!settings.phoneNumber) {
+      showToast("Set phone number in Settings");
+      setTab("settings");
+      return;
+    }
+    if (!pay.name || !pay.amount) {
+      showToast("Name and amount required");
+      return;
+    }
+
+    const tel = makeDial();
+    await saveTransaction();
+    window.location.href = tel;
+  }
+
+  function HomeScreen() {
+    return h(
+      React.Fragment,
+      null,
+      h(
+        Card,
+        null,
+        h("div", { className: "h" }, "Quick Actions"),
+        h(
+          "div",
+          { className: "btnRow" },
+          h(Button, { variant: "primary", onClick: () => setTab("scan") }, "Scan QR"),
+          h(Button, { variant: "primary", onClick: openDialModal }, "Build Dial")
+        ),
+        h("div", { style: { height: 10 } }),
+        h(
+          "div",
+          { className: "btnRow" },
+          h(Button, { onClick: doPay }, "Pay Now"),
+          h(
+            Button,
+            {
+              onClick: async () => {
+                await loadHistory(historyDays);
+                setTab("history");
+              }
+            },
+            "Recent"
+          )
+        )
+      ),
+      h(
+        Card,
+        null,
+        h("div", { className: "h" }, "Pay"),
+        h(
+          "div",
+          { className: "row" },
+          h("div", null, h("div", { className: "label" }, "Name"), h("input", {
+            className: "input",
+            value: pay.name,
+            onChange: (e) => setPay((p) => ({ ...p, name: e.target.value })),
+            placeholder: "Merchant / person"
+          })),
+          h(
+            "div",
+            null,
+            h("div", { className: "label" }, "UPI ID (optional)"),
+            h("input", {
+              className: "input",
+              value: pay.upiId,
+              onChange: (e) => setPay((p) => ({ ...p, upiId: e.target.value })),
+              placeholder: "name@bank"
+            })
+          ),
+          h(
+            "div",
+            { className: "grid2" },
+            h(
+              "div",
+              null,
+              h("div", { className: "label" }, "Digits"),
+              h("input", {
+                className: "input",
+                inputMode: "numeric",
+                value: pay.digits,
+                onChange: (e) =>
+                  setPay((p) => ({ ...p, digits: e.target.value })),
+                placeholder: "e.g. 1234"
+              })
+            ),
+            h(
+              "div",
+              null,
+              h("div", { className: "label" }, "Amount"),
+              h("input", {
+                className: "input",
+                inputMode: "decimal",
+                value: pay.amount,
+                onChange: (e) =>
+                  setPay((p) => ({ ...p, amount: e.target.value })),
+                placeholder: "e.g. 150"
+              })
+            )
+          ),
+          h(
+            "div",
+            null,
+            h("div", { className: "label" }, "Reference (optional)"),
+            h("input", {
+              className: "input",
+              value: pay.ref,
+              onChange: (e) => setPay((p) => ({ ...p, ref: e.target.value })),
+              placeholder: "Any note / ref"
+            })
+          )
+        )
+      ),
+      h(
+        Card,
+        null,
+        h("div", { className: "h" }, "Presets"),
+        presets.length
+          ? h(
+              "div",
+              { className: "row" },
+              presets.map((pr, idx) =>
+                h(
+                  "div",
+                  { key: idx, className: "txItem" },
+                  h(
+                    "div",
+                    null,
+                    h("div", { className: "txName" }, pr.name),
+                    h(
+                      "div",
+                      { className: "txMeta" },
+                      `digits ${pr.digits} • ${formatINR(pr.amount)}`
+                    )
+                  ),
+                  h(
+                    "div",
+                    { style: { display: "grid", gap: 6 } },
+                    h(
+                      "button",
+                      {
+                        className: "tab tabActive",
+                        onClick: () =>
+                          setPay((p) => ({
+                            ...p,
+                            name: pr.name,
+                            digits: String(pr.digits || ""),
+                            amount: String(pr.amount || "")
+                          }))
+                      },
+                      "Apply"
+                    ),
+                    h(
+                      "button",
+                      {
+                        className: "tab",
+                        onClick: () => {
+                          setPresets((arr) => arr.filter((_, i) => i !== idx));
+                          showToast("Removed preset");
+                        }
+                      },
+                      "Remove"
+                    )
+                  )
+                )
+              )
+            )
+          : h("div", { className: "hint" }, "No presets yet."),
+        h("div", { style: { height: 10 } }),
+        h(
+          Button,
+          {
+            onClick: () => {
+              const name = pay.name.trim();
+              const digits = String(pay.digits || "").replace(/\D/g, "");
+              const amount = Number(pay.amount);
+              if (!name || !digits || !Number.isFinite(amount) || amount <= 0) {
+                showToast("Fill Name, Digits, Amount to add preset");
+                return;
+              }
+              setPresets((arr) => [{ name, digits, amount }, ...arr].slice(0, 12));
+              showToast("Preset added");
+            }
+          },
+          "Add Current As Preset"
+        )
+      ),
+      h(
+        Card,
+        null,
+        h("div", { className: "h" }, "Recent (last 7 days)"),
+        history.slice(0, 3).map((tx, i) => h(TransactionItem, { key: i, tx, onUse: useTxForPay })),
+        !history.length ? h("div", { className: "hint" }, "No transactions yet.") : null
+      )
+    );
+  }
+
+  function ScanScreen() {
+    return h(
+      React.Fragment,
+      null,
+      h(
+        Card,
+        null,
+        h("div", { className: "h" }, "QR Scanner (Mock)"),
+        h("div", { className: "hint" }, "Paste a UPI QR payload like `upi://pay?pa=...&pn=...&am=...`."),
+        h("div", { style: { height: 10 } }),
+        h("textarea", {
+          className: "textarea mono",
+          value: scanText,
+          onChange: (e) => setScanText(e.target.value),
+          placeholder: "upi://pay?pa=merchant@upi&pn=Merchant&am=1.00"
+        }),
+        h("div", { style: { height: 10 } }),
+        h(
+          "div",
+          { className: "btnRow" },
+          h(
+            Button,
+            {
+              variant: "primary",
+              onClick: () => {
+                const parsed = parseUpiUri(scanText);
+                setScanParsed(parsed);
+                if (!parsed.ok) showToast(parsed.error);
+                else showToast("Parsed");
+              }
+            },
+            "Parse"
+          ),
+          h(
+            Button,
+            {
+              onClick: () => {
+                setScanText("");
+                setScanParsed(null);
+              }
+            },
+            "Clear"
+          )
+        )
+      ),
+      scanParsed && scanParsed.ok
+        ? h(
+            Card,
+            null,
+            h("div", { className: "h" }, "Parsed"),
+            h(
+              "div",
+              { className: "kv" },
+              h("b", null, "UPI ID"),
+              h("div", { className: "mono" }, scanParsed.upiId || "-"),
+              h("b", null, "Name"),
+              h("div", null, scanParsed.name || "-"),
+              h("b", null, "Amount"),
+              h("div", null, scanParsed.amount !== "" ? formatINR(scanParsed.amount) : "-"),
+              h("b", null, "Note"),
+              h("div", null, scanParsed.note || "-")
+            ),
+            h("div", { style: { height: 10 } }),
+            h(
+              Button,
+              { variant: "primary", onClick: () => applyParsedToPay(scanParsed) },
+              "Use For Pay"
+            )
+          )
+        : null,
+      scanParsed && !scanParsed.ok
+        ? h(
+            Card,
+            null,
+            h("div", { className: "h" }, "Error"),
+            h("div", { className: "hint" }, scanParsed.error)
+          )
+        : null
+    );
+  }
+
+  function HistoryScreen() {
+    return h(
+      React.Fragment,
+      null,
+      h(
+        Card,
+        null,
+        h("div", { className: "h" }, "History"),
+        h(
+          "div",
+          { className: "grid2" },
+          h(
+            Button,
+            {
+              variant: historyDays === 7 ? "primary" : undefined,
+              onClick: () => setHistoryDays(7)
+            },
+            "7 days"
+          ),
+          h(
+            Button,
+            {
+              variant: historyDays === 30 ? "primary" : undefined,
+              onClick: () => setHistoryDays(30)
+            },
+            "30 days"
+          )
+        ),
+        h("div", { style: { height: 10 } }),
+        history.length
+          ? h(
+              "div",
+              { className: "row" },
+              history.map((tx, i) => h(TransactionItem, { key: i, tx, onUse: useTxForPay }))
+            )
+          : h("div", { className: "hint" }, "No transactions yet.")
+      )
+    );
+  }
+
+  function SettingsScreen() {
+    const delays = settings;
+    const telPreview = buildDialString(settings.phoneNumber, "1234", "1.00", delays);
+
+    function updateNum(key, value) {
+      setSettings((s) => ({ ...s, [key]: value }));
+    }
+
+    return h(
+      React.Fragment,
+      null,
+      h(
+        Card,
+        null,
+        h("div", { className: "h" }, "IVR Settings"),
+        h(
+          "div",
+          { className: "row" },
+          h(
+            "div",
+            null,
+            h("div", { className: "label" }, "Phone number"),
+            h("input", {
+              className: "input",
+              inputMode: "tel",
+              value: settings.phoneNumber,
+              onChange: (e) => updateNum("phoneNumber", e.target.value),
+              placeholder: "e.g. 1800123456"
+            })
+          ),
+          h(
+            "div",
+            { className: "grid2" },
+            h(
+              "div",
+              null,
+              h("div", { className: "label" }, "Delay 1 (commas)"),
+              h("input", {
+                className: "input",
+                inputMode: "numeric",
+                value: String(settings.step1),
+                onChange: (e) => updateNum("step1", e.target.value)
+              })
+            ),
+            h(
+              "div",
+              null,
+              h("div", { className: "label" }, "Delay 2 (commas)"),
+              h("input", {
+                className: "input",
+                inputMode: "numeric",
+                value: String(settings.step2),
+                onChange: (e) => updateNum("step2", e.target.value)
+              })
+            )
+          ),
+          h(
+            "div",
+            { className: "grid2" },
+            h(
+              "div",
+              null,
+              h("div", { className: "label" }, "Delay 3 (commas)"),
+              h("input", {
+                className: "input",
+                inputMode: "numeric",
+                value: String(settings.step3),
+                onChange: (e) => updateNum("step3", e.target.value)
+              })
+            ),
+            h(
+              "div",
+              null,
+              h("div", { className: "label" }, "Delay 4 (commas)"),
+              h("input", {
+                className: "input",
+                inputMode: "numeric",
+                value: String(settings.step4),
+                onChange: (e) => updateNum("step4", e.target.value)
+              })
+            )
+          )
+        ),
+        h("div", { style: { height: 10 } }),
+        h("div", { className: "pill" }, "Preview:"),
+        h("div", { style: { height: 8 } }),
+        h("div", { className: "hint mono" }, telPreview),
+        h("div", { style: { height: 10 } }),
+        h(
+          Button,
+          {
+            variant: "danger",
+            onClick: () => {
+              setSettings({ phoneNumber: "", step1: 2, step2: 2, step3: 2, step4: 2 });
+              showToast("Settings reset");
+            }
+          },
+          "Reset"
+        )
+      ),
+      h(
+        Card,
+        null,
+        h("div", { className: "h" }, "Data"),
+        h(
+          "div",
+          { className: "hint" },
+          "Transactions are stored locally in ",
+          h("span", { className: "mono" }, "data.json"),
+          "."
+        ),
+        h("div", { style: { height: 10 } }),
+        h(
+          Button,
+          {
+            onClick: async () => {
+              await loadHistory(30);
+              showToast("Synced");
+            }
+          },
+          "Sync History"
+        )
+      )
+    );
+  }
+
+  const screen =
+    tab === "home"
+      ? h(HomeScreen)
+      : tab === "scan"
+        ? h(ScanScreen)
+        : tab === "history"
+          ? h(HistoryScreen)
+          : h(SettingsScreen);
+
+  return h(
+    "div",
+    { className: "app" },
+    h(
+      "header",
+      { className: "topbar" },
+      h("div", { className: "title" }, "UPI Assistant"),
+      h("div", { className: "subtitle" }, tab === "home" ? "Fast pay + presets" : tab)
+    ),
+    h("main", { className: "content" }, screen),
+    h(Nav, { tab, setTab }),
+    h(Toast, { text: toast.text, show: toast.show }),
+    h(
+      Modal,
+      {
+        open: modal.open,
+        title: modal.title,
+        onClose: () => setModal({ open: false, title: "", text: "" })
+      },
+      h("div", { className: "hint" }, "Tap to copy, or close."),
+      h("div", { style: { height: 10 } }),
+      h(
+        "button",
+        {
+          className: "input mono",
+          onClick: async () => {
+            try {
+              await navigator.clipboard.writeText(modal.text || "");
+              showToast("Copied");
+            } catch (_e) {
+              showToast("Copy not available");
+            }
+          }
+        },
+        modal.text || ""
+      )
+    )
+  );
+}
+
+function boot() {
+  const root = document.getElementById("root");
+  ReactDOM.render(h(App), root);
+}
+
+boot();
