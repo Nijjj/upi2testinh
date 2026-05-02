@@ -95,7 +95,9 @@ function useStoredState(key, initialValue) {
 function Button(props) {
   const className =
     "btn " +
-    (props.variant === "primary"
+    (props.variant === "cta"
+      ? "btnCta"
+      : props.variant === "primary"
       ? "btnPrimary"
       : props.variant === "danger"
         ? "btnDanger"
@@ -108,7 +110,11 @@ function Button(props) {
 }
 
 function Card(props) {
-  return h("section", { className: "card" }, props.children);
+  return h(
+    "section",
+    { className: "card " + (props.soft ? "cardSoft" : "") },
+    props.children
+  );
 }
 
 function TransactionItem({ tx, onUse }) {
@@ -291,6 +297,36 @@ function App() {
     return json;
   }
 
+  function saveTransactionFireAndForget() {
+    const payload = {
+      name: pay.name,
+      upiId: pay.upiId,
+      amount: pay.amount,
+      ref: pay.ref || undefined
+    };
+
+    try {
+      if (navigator.sendBeacon) {
+        const blob = new Blob([JSON.stringify(payload)], { type: "application/json" });
+        navigator.sendBeacon("/save", blob);
+        return;
+      }
+    } catch (_e) {
+      // ignore
+    }
+
+    try {
+      fetch("/save", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+        keepalive: true
+      }).catch(() => {});
+    } catch (_e) {
+      // ignore
+    }
+  }
+
   function makeDial() {
     const tel = buildDialString(
       settings.phoneNumber,
@@ -323,7 +359,7 @@ function App() {
     }
 
     const tel = makeDial();
-    await saveTransaction();
+    saveTransactionFireAndForget();
     window.location.href = tel;
   }
 
@@ -333,19 +369,24 @@ function App() {
       null,
       h(
         Card,
+        { soft: true },
         null,
         h("div", { className: "h" }, "Quick Actions"),
         h(
           "div",
-          { className: "btnRow" },
-          h(Button, { variant: "primary", onClick: () => setTab("scan") }, "Scan QR"),
-          h(Button, { variant: "primary", onClick: openDialModal }, "Build Dial")
+          { className: "btnRowSingle" },
+          h(Button, { variant: "cta", onClick: () => setTab("scan") }, "Scan QR (Camera)"),
+          h(
+            "div",
+            { className: "btnRow" },
+            h(Button, { variant: "primary", onClick: openDialModal }, "Build Dial"),
+            h(Button, { onClick: doPay }, "Pay Now")
+          )
         ),
         h("div", { style: { height: 10 } }),
         h(
           "div",
           { className: "btnRow" },
-          h(Button, { onClick: doPay }, "Pay Now"),
           h(
             Button,
             {
@@ -355,7 +396,8 @@ function App() {
               }
             },
             "Recent"
-          )
+          ),
+          h(Button, { onClick: () => setTab("settings") }, "Settings")
         )
       ),
       h(
@@ -510,13 +552,188 @@ function App() {
   }
 
   function ScanScreen() {
+    const videoRef = React.useRef(null);
+    const canvasRef = React.useRef(null);
+    const streamRef = React.useRef(null);
+    const loopRef = React.useRef(0);
+    const detectorRef = React.useRef(null);
+
+    const [facing, setFacing] = useStoredState("upi.scanFacing", "environment");
+    const [running, setRunning] = React.useState(false);
+    const [scanErr, setScanErr] = React.useState("");
+
+    function stopCamera() {
+      window.clearInterval(loopRef.current);
+      loopRef.current = 0;
+      setRunning(false);
+      setScanErr("");
+
+      const stream = streamRef.current;
+      streamRef.current = null;
+      if (stream && stream.getTracks) {
+        try {
+          stream.getTracks().forEach((t) => t.stop());
+        } catch (_e) {
+          // ignore
+        }
+      }
+      const v = videoRef.current;
+      if (v) v.srcObject = null;
+    }
+
+    async function startCamera() {
+      setScanErr("");
+      setScanParsed(null);
+
+      if (!("mediaDevices" in navigator) || !navigator.mediaDevices.getUserMedia) {
+        setScanErr("Camera not available in this browser/WebView.");
+        return;
+      }
+      if (!("BarcodeDetector" in window)) {
+        setScanErr("QR decode not supported here (BarcodeDetector missing). Use manual paste below.");
+        return;
+      }
+
+      try {
+        if (!detectorRef.current) {
+          detectorRef.current = new window.BarcodeDetector({ formats: ["qr_code"] });
+        }
+      } catch (_e) {
+        setScanErr("QR decode not supported (BarcodeDetector init failed). Use manual paste below.");
+        return;
+      }
+
+      stopCamera();
+      setRunning(true);
+
+      try {
+        const constraints = {
+          audio: false,
+          video: {
+            facingMode: facing,
+            width: { ideal: 960 },
+            height: { ideal: 540 }
+          }
+        };
+        const stream = await navigator.mediaDevices.getUserMedia(constraints);
+        streamRef.current = stream;
+
+        const v = videoRef.current;
+        if (!v) throw new Error("video element missing");
+        v.srcObject = stream;
+        await v.play();
+
+        const canvas = canvasRef.current;
+        if (!canvas) throw new Error("canvas missing");
+        const ctx = canvas.getContext("2d", { willReadFrequently: true });
+        if (!ctx) throw new Error("canvas context missing");
+
+        loopRef.current = window.setInterval(async () => {
+          try {
+            const vw = v.videoWidth || 0;
+            const vh = v.videoHeight || 0;
+            if (!vw || !vh) return;
+
+            // Downscale for low CPU on low-end devices.
+            const targetW = Math.min(520, vw);
+            const targetH = Math.floor((targetW * vh) / vw);
+            canvas.width = targetW;
+            canvas.height = targetH;
+            ctx.drawImage(v, 0, 0, targetW, targetH);
+
+            const detector = detectorRef.current;
+            if (!detector) return;
+            const codes = await detector.detect(canvas);
+            if (!codes || !codes.length) return;
+
+            const raw = String(codes[0]?.rawValue || "").trim();
+            if (!raw) return;
+            const parsed = parseUpiUri(raw);
+            setScanParsed(parsed);
+            if (parsed.ok) {
+              stopCamera();
+              applyParsedToPay(parsed);
+            } else {
+              showToast(parsed.error);
+            }
+          } catch (_e) {
+            // Swallow loop errors to keep camera stable.
+          }
+        }, 220);
+      } catch (e) {
+        stopCamera();
+        setScanErr(e?.message || "Camera start failed");
+      }
+    }
+
+    React.useEffect(() => {
+      // Clean up whenever leaving the scan tab.
+      if (tab !== "scan") stopCamera();
+      return () => stopCamera();
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [tab]);
+
     return h(
       React.Fragment,
       null,
       h(
         Card,
+        { soft: true },
         null,
-        h("div", { className: "h" }, "QR Scanner (Mock)"),
+        h("div", { className: "h" }, "Scan QR"),
+        h(
+          "div",
+          { className: "scannerStage" },
+          h("video", { className: "scannerVideo", ref: videoRef, playsInline: true, muted: true }),
+          h("canvas", { ref: canvasRef, style: { display: "none" } }),
+          h(
+            "div",
+            { className: "scannerOverlay" },
+            h(
+              "div",
+              { className: "scannerTopHint" },
+              h("div", { className: "badge" }, running ? "Scanning…" : "Ready"),
+              h("div", { className: "badge" }, facing === "environment" ? "Back camera" : "Front camera")
+            ),
+            h(
+              "div",
+              { className: "scannerFrame" },
+              h("div", { className: "scannerGlow" }),
+              running ? h("div", { className: "scannerLine" }) : null
+            )
+          )
+        ),
+        h("div", { style: { height: 10 } }),
+        h(
+          "div",
+          { className: "btnRow" },
+          h(
+            Button,
+            { variant: "cta", onClick: running ? stopCamera : startCamera },
+            running ? "Stop" : "Start Camera"
+          ),
+          h(
+            Button,
+            {
+              onClick: async () => {
+                const next = facing === "environment" ? "user" : "environment";
+                setFacing(next);
+                if (running) {
+                  stopCamera();
+                  window.setTimeout(startCamera, 120);
+                }
+              }
+            },
+            "Flip"
+          )
+        ),
+        scanErr ? h("div", { style: { marginTop: 10 }, className: "hint" }, scanErr) : null,
+        h("div", { style: { marginTop: 10 }, className: "hint" }, "Tip: Works best with good light. If camera/QR decode isn't supported, use manual paste below.")
+      ),
+      h(
+        Card,
+        null,
+        h("div", { className: "h" }, "Manual Paste (Fallback)"),
         h("div", { className: "hint" }, "Paste a UPI QR payload like `upi://pay?pa=...&pn=...&am=...`."),
         h("div", { style: { height: 10 } }),
         h("textarea", {
@@ -774,7 +991,7 @@ function App() {
       h("div", { className: "title" }, "UPI Assistant"),
       h("div", { className: "subtitle" }, tab === "home" ? "Fast pay + presets" : tab)
     ),
-    h("main", { className: "content" }, screen),
+    h("main", { className: "content" }, h("div", { key: tab, className: "page" }, screen)),
     h(Nav, { tab, setTab }),
     h(Toast, { text: toast.text, show: toast.show }),
     h(

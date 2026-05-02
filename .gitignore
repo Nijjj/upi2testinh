@@ -2,3 +2,6 @@ node_modules/
 *.tmp
 .DS_Store
 npm-debug.log*
+
+# Local data
+data.json

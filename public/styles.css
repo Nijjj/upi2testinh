@@ -6,6 +6,7 @@
   --muted: #9aa3b2;
   --line: rgba(255, 255, 255, 0.08);
   --accent: #4da3ff;
+  --accent2: #6ee7ff;
   --danger: #ff5a5f;
   --radius: 10px;
 }
@@ -64,11 +65,34 @@ a {
   gap: 12px;
 }
 
+.page {
+  display: grid;
+  gap: 12px;
+  animation: pageIn 200ms ease both;
+  will-change: transform, opacity;
+}
+
+@keyframes pageIn {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 .card {
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: var(--radius);
   padding: 12px;
+}
+
+.cardSoft {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.02), rgba(255, 255, 255, 0)) ,
+    var(--panel);
 }
 
 .row {
@@ -88,6 +112,12 @@ a {
   gap: 10px;
 }
 
+.btnRowSingle {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 10px;
+}
+
 .btn {
   display: inline-flex;
   align-items: center;
@@ -102,17 +132,24 @@ a {
   font-weight: 600;
   user-select: none;
   -webkit-tap-highlight-color: transparent;
-  transition: transform 160ms ease, opacity 160ms ease;
+  transition: transform 120ms ease, opacity 120ms ease, background 160ms ease, border-color 160ms ease;
 }
 
 .btn:active {
-  transform: scale(0.99);
-  opacity: 0.95;
+  transform: scale(0.96);
+  opacity: 0.98;
 }
 
 .btnPrimary {
   background: rgba(77, 163, 255, 0.14);
-  border-color: rgba(77, 163, 255, 0.35);
+  border-color: rgba(77, 163, 255, 0.38);
+}
+
+.btnCta {
+  background: radial-gradient(120% 120% at 30% 10%, rgba(110, 231, 255, 0.16), rgba(77, 163, 255, 0.10) 45%, rgba(77, 163, 255, 0.06) 70%),
+    rgba(77, 163, 255, 0.08);
+  border-color: rgba(110, 231, 255, 0.28);
+  box-shadow: 0 10px 24px rgba(77, 163, 255, 0.10);
 }
 
 .btnDanger {
@@ -130,6 +167,13 @@ a {
   padding: 10px 10px;
   font-size: 14px;
   outline: none;
+  transition: transform 120ms ease, border-color 160ms ease, background 160ms ease;
+}
+
+.input:focus,
+.textarea:focus {
+  border-color: rgba(110, 231, 255, 0.26);
+  background: rgba(12, 14, 19, 0.96);
 }
 
 .textarea {
@@ -189,7 +233,7 @@ a {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   gap: 6px;
-  padding: 8px 10px 10px;
+  padding: 8px 10px calc(10px + env(safe-area-inset-bottom, 0px));
 }
 
 .tab {
@@ -223,6 +267,12 @@ a {
   border: 1px solid var(--line);
   border-radius: 10px;
   background: rgba(255, 255, 255, 0.02);
+  transition: transform 160ms ease, background 160ms ease, border-color 160ms ease;
+}
+
+.txItem:active {
+  transform: translateY(-1px);
+  border-color: rgba(255, 255, 255, 0.14);
 }
 
 .txName {
@@ -317,4 +367,119 @@ a {
   font-size: 14px;
   font-weight: 700;
   margin: 2px 0 10px;
+}
+
+/* Scanner */
+.scannerStage {
+  position: relative;
+  overflow: hidden;
+  border-radius: 14px;
+  border: 1px solid var(--line);
+  background: #05060a;
+  aspect-ratio: 3 / 4;
+}
+
+.scannerVideo {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transform: scale(1.02);
+}
+
+.scannerOverlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.scannerFrame {
+  position: absolute;
+  left: 50%;
+  top: 44%;
+  width: min(66vw, 260px);
+  height: min(66vw, 260px);
+  transform: translate(-50%, -50%);
+  border-radius: 18px;
+  border: 2px solid rgba(110, 231, 255, 0.35);
+  box-shadow: 0 0 0 999px rgba(0, 0, 0, 0.55), 0 0 24px rgba(110, 231, 255, 0.10);
+}
+
+.scannerGlow {
+  position: absolute;
+  inset: -6px;
+  border-radius: 22px;
+  box-shadow: 0 0 28px rgba(77, 163, 255, 0.14);
+}
+
+.scannerLine {
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  top: 10px;
+  bottom: 10px;
+  opacity: 0.9;
+  animation: scanLine 1300ms ease-in-out infinite;
+  will-change: transform, opacity;
+}
+
+.scannerLine::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 2px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, transparent, rgba(110, 231, 255, 0.92), transparent);
+  box-shadow: 0 0 14px rgba(110, 231, 255, 0.25);
+}
+
+@keyframes scanLine {
+  0% {
+    transform: translateY(0);
+    opacity: 0.25;
+  }
+  40% {
+    opacity: 0.9;
+  }
+  100% {
+    transform: translateY(100%);
+    opacity: 0.25;
+  }
+}
+
+.scannerTopHint {
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  top: 10px;
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 8px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(0, 0, 0, 0.35);
+  color: rgba(255, 255, 255, 0.92);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .btn,
+  .tab,
+  .page,
+  .toast,
+  .modal,
+  .scannerLine {
+    transition: none !important;
+    animation: none !important;
+  }
 }
