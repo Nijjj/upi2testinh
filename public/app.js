@@ -137,18 +137,21 @@ function App() {
 
   function renderScan() {
     return h("div", { className: "fade-in" },
-      h(Header, { title: "Scan QR", subtitle: "Paste UPI URI or Scan" }),
-      h(Card, null,
+      h(Header, { title: "Scan QR", subtitle: "Point at a UPI QR Code" }),
+      h(Scanner, {
+        onScan: (text) => handleScan(text),
+        onError: (err) => showToast(err),
+        onCancel: () => setTab("home")
+      }),
+      h("div", { className: "mt-2" },
         h(Input, {
-          label: "UPI URI",
+          label: "Or Paste UPI URI",
           placeholder: "upi://pay?...",
           onChange: (val) => {
             if (val.startsWith("upi://")) handleScan(val);
           }
-        }),
-        h("p", { className: "text-secondary" }, "Paste a UPI URI to simulate a scan.")
-      ),
-      h(Button, { onClick: () => setTab("home") }, "Back")
+        })
+      )
     );
   }
 

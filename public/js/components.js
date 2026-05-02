@@ -71,8 +71,97 @@ function TransactionItem({ tx, onUse }) {
   );
 }
 
-function Toast({ message, show }) {
-  return h("div", { className: `toast ${show ? 'toast-show' : ''}` }, message);
+function Scanner({ onScan, onError, onCancel }) {
+  const videoRef = React.useRef(null);
+  const canvasRef = React.useRef(null);
+  const streamRef = React.useRef(null);
+  const loopRef = React.useRef(0);
+  const detectorRef = React.useRef(null);
+
+  React.useEffect(() => {
+    startCamera();
+    return () => stopCamera();
+  }, []);
+
+  function stopCamera() {
+    if (loopRef.current) {
+      window.clearInterval(loopRef.current);
+      loopRef.current = 0;
+    }
+    const stream = streamRef.current;
+    streamRef.current = null;
+    if (stream && stream.getTracks) {
+      stream.getTracks().forEach((t) => t.stop());
+    }
+    if (videoRef.current) videoRef.current.srcObject = null;
+  }
+
+  async function startCamera() {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      onError("Camera not supported");
+      return;
+    }
+
+    try {
+      if (!detectorRef.current && window.BarcodeDetector) {
+        detectorRef.current = new window.BarcodeDetector({ formats: ["qr_code"] });
+      }
+    } catch (e) {}
+
+    try {
+      let stream;
+      try {
+        // Try exact back camera first
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: { exact: "environment" } },
+          audio: false
+        });
+      } catch (e) {
+        // Fallback to any environment camera
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: "environment" },
+          audio: false
+        });
+      }
+      
+      streamRef.current = stream;
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        await videoRef.current.play();
+      }
+
+      const canvas = canvasRef.current;
+      const video = videoRef.current;
+      if (!canvas || !video) return;
+      const ctx = canvas.getContext("2d", { willReadFrequently: true });
+
+      loopRef.current = window.setInterval(async () => {
+        if (!video.videoWidth) return;
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        ctx.drawImage(video, 0, 0);
+
+        if (detectorRef.current) {
+          const codes = await detectorRef.current.detect(canvas);
+          if (codes && codes.length > 0) {
+            onScan(codes[0].rawValue);
+          }
+        }
+      }, 300);
+    } catch (e) {
+      onError(e.message || "Failed to start camera");
+    }
+  }
+
+  return h("div", { className: "scanner-container" },
+    h("video", { 
+      ref: videoRef, 
+      style: { width: "100%", borderRadius: "12px", background: "#000" },
+      playsInline: true 
+    }),
+    h("canvas", { ref: canvasRef, style: { display: "none" } }),
+    h(Button, { onClick: onCancel, className: "mt-1" }, "Cancel")
+  );
 }
 
-window.UI = { Button, Input, Card, Header, BottomNav, TransactionItem, Toast };
+window.UI = { Button, Input, Card, Header, BottomNav, TransactionItem, Toast, Scanner };
